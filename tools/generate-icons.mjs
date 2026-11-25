@@ -42,7 +42,7 @@ function lerpChannel(a, b, t) {
   return Math.round(a + (b - a) * t);
 }
 
-function colorAt(x, y, { rounded, glyphScale }) {
+function colorAt(x, y, { rounded, glyphScale, glyphOnly = false }) {
   if (rounded && !insideRoundedRect(x, y, 0, 0, 1, 1, 0.22)) return null;
 
   const gx = (x - 0.5) / glyphScale + 0.5;
@@ -55,6 +55,7 @@ function colorAt(x, y, { rounded, glyphScale }) {
 
   if (inLineOne || inLineTwo) return LINE_COLOR;
   if (inBag || inHandle) return WHITE;
+  if (glyphOnly) return null;
 
   return [
     lerpChannel(TEAL_TOP[0], TEAL_BOTTOM[0], y),
@@ -173,6 +174,32 @@ async function main() {
   for (const [name, buffer] of outputs) {
     await writeFile(path.join(OUT_DIR, name), buffer);
     console.log(`wrote icons/${name} (${buffer.length} bytes)`);
+  }
+
+  const androidRes = path.join(OUT_DIR, '..', 'android', 'app', 'src', 'main', 'res');
+  const androidDensities = [
+    ['mdpi', 48, 108],
+    ['hdpi', 72, 162],
+    ['xhdpi', 96, 216],
+    ['xxhdpi', 144, 324],
+    ['xxxhdpi', 192, 432],
+  ];
+
+  for (const [density, legacySize, foregroundSize] of androidDensities) {
+    const directory = path.join(androidRes, `mipmap-${density}`);
+    await mkdir(directory, { recursive: true });
+
+    const legacy = renderIcon(legacySize, { rounded: true, glyphScale: 1 });
+    const foreground = renderIcon(foregroundSize, {
+      rounded: false,
+      glyphScale: 1.15,
+      glyphOnly: true,
+    });
+
+    await writeFile(path.join(directory, 'ic_launcher.png'), legacy);
+    await writeFile(path.join(directory, 'ic_launcher_round.png'), legacy);
+    await writeFile(path.join(directory, 'ic_launcher_foreground.png'), foreground);
+    console.log(`wrote android mipmap-${density} launcher icons`);
   }
 }
 

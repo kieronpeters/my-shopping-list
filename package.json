@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.mjs",
     "icons": "node tools/generate-icons.mjs",
-    "test": "node --test tests/store.test.mjs tests/project.test.mjs",
+    "test": "node --test tests/store.test.mjs tests/project.test.mjs tests/android.test.mjs",
     "test:e2e": "node tests/e2e.mjs",
     "test:all": "npm test && npm run test:e2e"
   },

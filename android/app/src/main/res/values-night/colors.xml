@@ -1,0 +1,6 @@
+<resources>
+    <color name="windowBackground">#0B1210</color>
+    <color name="statusBarColor">#0B1210</color>
+    <color name="navigationBarColor">#0B1210</color>
+    <color name="splashBackgroundColor">#0B1210</color>
+</resources>

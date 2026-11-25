@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "io.github.kieronpeters.shoppinglist",
+      "sha256_cert_fingerprints": [
+        "C2:2F:05:53:6E:EC:EB:66:C2:B5:51:30:D7:11:0F:09:65:4A:F4:DC:19:5B:A4:3D:B5:95:6E:22:EE:83:3C:8D"
+      ]
+    }
+  }
+]
