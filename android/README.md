@@ -1,9 +1,10 @@
 # My Shopping List — Android app
 
 This folder packages the same web app as a native, installable Android app using a
-**Trusted Web Activity (TWA)**. The Android app opens the published PWA full-screen,
-shares Chrome's local storage for that origin (so the list matches the web app on the
-same device), and benefits from the service worker's offline cache.
+**Trusted Web Activity (TWA)**. The Android app opens the published PWA (chrome-less
+while Digital Asset Links are published), shares Chrome's local storage for that origin
+(so the list matches the web app on the same device), and benefits from the service
+worker's offline cache.
 
 - **App name:** My Shopping List
 - **Package:** `io.github.kieronpeters.shoppinglist`
@@ -72,9 +73,9 @@ same app identity.
 `app/build.gradle` reads `keystore/keystore.properties`; without it, `assembleRelease`
 produces an unsigned APK.
 
-## Required host files (Digital Asset Links)
+## Digital Asset Links (currently not published)
 
-For a chrome-less TWA, the website must prove ownership of the app by publishing
+Chrome-less TWA mode requires the website to prove ownership of the app by publishing
 `assetlinks.json` at the **host root**:
 
 ```
@@ -82,14 +83,22 @@ https://kieronpeters.github.io/.well-known/assetlinks.json
 ```
 
 Because this project is a GitHub Pages *project* site, that file cannot live in this
-repository. It is published from the separate
-[`kieronpeters/kieronpeters.github.io`](https://github.com/kieronpeters/kieronpeters.github.io)
-repository. `android/assetlinks.json` is a copy of the deployed file.
+repository. It was previously published from the separate
+`kieronpeters/kieronpeters.github.io` repository, which has since been removed at the
+owner's request. The URL now returns 404, so a newly launched app may show Chrome's
+address bar (Custom Tabs fallback). The app still works and keeps its local data.
+
+`android/assetlinks.json` is kept as the file to deploy if chrome-less mode is wanted
+again. To restore it:
+
+1. Create a public repository named exactly `kieronpeters.github.io`.
+2. Add `.nojekyll` and `.well-known/assetlinks.json` (copy `android/assetlinks.json`).
+3. Enable Pages on `main` / root, wait for the URL to become live, then relaunch the app.
 
 If you change the signing key, update `sha256_cert_fingerprints` in the deployed
-`/.well-known/assetlinks.json` and in `android/assetlinks.json`, then redeploy.
-If you publish to the Play Store with Play App Signing, add Play's app-signing
-certificate SHA-256 there as well.
+`/.well-known/assetlinks.json` and in `android/assetlinks.json`. If you publish to the
+Play Store with Play App Signing, add Play's app-signing certificate SHA-256 there as
+well.
 
 Check it:
 
@@ -103,12 +112,12 @@ or use Google's Digital Asset Links API:
 https://digitalassetlinks.googleapis.com/v1/statements:list?source.web.site=https%3A%2F%2Fkieronpeters.github.io&relation=delegate_permission%2Fcommon.handle_all_urls
 ```
 
-If verification ever fails, the TWA falls back to a Custom Tab with an address bar
-rather than failing to open.
+When verification fails or is absent, the TWA falls back to a Custom Tab with an
+address bar rather than failing to open.
 
 ## Updating
 
-- **Web content** — push to the main repository; GitHub Pages redeploys and the TWA
+- **Web content** — push to the main repository; GitHub Pages redeploys and the app
   picks it up. The service worker version in `sw.js` should be bumped when the app
   shell changes.
 - **Android shell** — bump `versionCode` and `versionName` in `app/build.gradle`,
@@ -119,7 +128,8 @@ rather than failing to open.
 - The signed APK installs on the Samsung SM-S918B test phone over wireless ADB, is enabled, and
   resolves its launcher activity. The app starts into Chrome's TWA activity.
 - The same signed APK was exercised end-to-end on an **Android 15 (API 35) emulator** with Chrome:
-  - launches full-screen with **no browser bar** (Digital Asset Links verified),
+  - launched full-screen with **no browser bar** while Digital Asset Links were live
+    (with the host-root file now removed, expect the Custom Tabs address bar instead),
   - items can be added through the Android UI,
   - the list survives closing Chrome and relaunching the app,
   - the list is **shared with the web app** opened in Chrome for the same origin,
