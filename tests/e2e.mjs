@@ -170,13 +170,18 @@ async function waitForDevToolsPort(profileDir, chrome, stderr) {
 }
 
 async function main() {
-  const server = createStaticServer({ root: ROOT });
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const port = server.address().port;
-  const baseUrl = `http://127.0.0.1:${port}/`;
+  const externalBase = process.env.E2E_BASE_URL;
+  const server = externalBase ? null : createStaticServer({ root: ROOT });
+  if (server) {
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolve);
+    });
+  }
+  const port = server ? server.address().port : null;
+  const baseUrl = externalBase
+    ? new URL(externalBase.endsWith('/') ? externalBase : `${externalBase}/`).href
+    : `http://127.0.0.1:${port}/`;
 
   const profileDir = await mkdtemp(path.join(tmpdir(), 'shopping-list-chrome-'));
   let chromeStderr = '';
@@ -841,7 +846,7 @@ async function main() {
     clearTimeout(watchdog);
     cdp?.close();
     if (chrome.exitCode === null) chrome.kill();
-    await new Promise((resolve) => server.close(resolve));
+    if (server) await new Promise((resolve) => server.close(resolve));
     await rm(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 }).catch(() => {});
   }
 }

@@ -4,6 +4,8 @@ A simple, private shopping list that lives on your phone. Add items, edit them, 
 
 No accounts, no backend, no tracking, no store — just your list.
 
+**Live app:** <https://kieronpeters.github.io/my-shopping-list/>
+
 | Light | Dark |
 | --- | --- |
 | ![My Shopping List in light mode](docs/screenshot-light.png) | ![My Shopping List in dark mode](docs/screenshot-dark.png) |
@@ -22,18 +24,26 @@ Then open <http://localhost:4173>.
 
 ## Install it on your phone (PWA)
 
-The app is a PWA. Browsers only offer installation over **HTTPS** (localhost is the exception), so put the folder on any free static host. Nothing needs to be built — the files are the app.
+The app is already published over HTTPS with GitHub Pages at:
 
-1. Deploy the project folder to an HTTPS host:
-   - **Netlify Drop** (easiest, no account required): go to <https://app.netlify.com/drop> and drag this folder onto the page.
-   - **GitHub Pages**: push this folder to a repository, then enable Pages (Settings → Pages → deploy from branch, root folder).
-   - **Cloudflare Pages / Vercel / any web host**: upload the folder as static files.
-2. Open the HTTPS URL on your phone.
-3. Install it:
-   - **Android / Chrome**: menu (⋮) → **Add to Home screen** / **Install app**.
-   - **iPhone / Safari**: Share button → **Add to Home Screen**.
+**<https://kieronpeters.github.io/my-shopping-list/>**
 
-The installed app opens full-screen, works offline, and keeps its own copy of the list.
+Open that address on your phone and install it:
+
+- **Android / Chrome**: tap the install icon in the address bar, or menu (⋮) → **Install app** / **Add to Home screen**.
+- **iPhone / Safari**: Share button → **Add to Home Screen**.
+
+Once installed it opens full-screen, works offline, and keeps its own copy of the list. Add it while you have internet; after the first load the app shell is cached and the list itself never needs the network.
+
+Browsers only offer installation over **HTTPS** (localhost is the exception). This copy is served by GitHub Pages from the `main` branch, so pushing to the repository republishes it automatically.
+
+### Hosting your own copy instead
+
+Nothing needs to be built — the files are the app. Upload the folder to any static HTTPS host:
+
+- **Netlify Drop** (no account required): drag the folder onto <https://app.netlify.com/drop>.
+- **GitHub Pages**: push this folder to a repository, then enable Pages (Settings → Pages → deploy from branch, root folder).
+- **Cloudflare Pages / Vercel / any web host**: upload the folder as static files.
 
 ## Using it
 
@@ -76,12 +86,13 @@ docs/                 screenshots used above
 
 ```bash
 npm test          # 22 logic, static-asset, and server checks
-npm run test:e2e  # 19 end-to-end checks in real Chrome
+npm run test:e2e  # 20 end-to-end checks in real Chrome
 npm run test:all  # both suites
 ```
 
 - `npm test` covers the list logic (add/edit/delete/toggle/undo, corrupt-data recovery, storage failures), manifest/icon validity, service-worker pre-caching, and the static server (content types, headers, traversal protection).
-- `npm run test:e2e` launches installed Chrome (or Edge) headless, drives the app on a 390×844 mobile viewport, and verifies adding, editing, Enter/Escape, deleting with undo, purchased grouping, reload persistence, service-worker registration, genuine offline reload, 320/390 px layouts with 44 px tap targets, XSS-safe rendering, and corrupt-storage recovery. Set `CHROME_PATH` to use a specific browser. It also regenerates `docs/screenshot-light.png` and `docs/screenshot-dark.png`.
+- `npm run test:e2e` launches installed Chrome (or Edge) headless, drives the app on a 390×844 mobile viewport, and verifies adding, editing, Enter/Escape, deleting with undo, purchased grouping, reload persistence, service-worker registration, Chrome's PWA installability check, genuine offline reload, 320/390 px layouts with 44 px tap targets, XSS-safe rendering, and corrupt-storage recovery. Set `CHROME_PATH` to use a specific browser. It also regenerates `docs/screenshot-light.png` and `docs/screenshot-dark.png`.
+- Run the same browser suite against the deployed site with `E2E_BASE_URL=https://kieronpeters.github.io/my-shopping-list/ npm run test:e2e`.
 - `npm run icons` regenerates the icon set.
 
 ## Design decisions
