@@ -114,6 +114,19 @@ rather than failing to open.
 - **Android shell** — bump `versionCode` and `versionName` in `app/build.gradle`,
   rebuild, and install the new APK. Keep the same signing key.
 
+## Verification
+
+- The signed APK installs on the Samsung SM-S918B test phone over wireless ADB, is enabled, and
+  resolves its launcher activity. The app starts into Chrome's TWA activity.
+- The same signed APK was exercised end-to-end on an **Android 15 (API 35) emulator** with Chrome:
+  - launches full-screen with **no browser bar** (Digital Asset Links verified),
+  - items can be added through the Android UI,
+  - the list survives closing Chrome and relaunching the app,
+  - the list is **shared with the web app** opened in Chrome for the same origin,
+  - with **airplane mode enabled**, the app still opens from the service-worker cache with the list intact.
+
+Web-side coverage remains in the main test suite (`npm test`, `npm run test:e2e`).
+
 ## How it is built
 
 - `com.google.androidbrowserhelper:androidbrowserhelper` provides the TWA activity.

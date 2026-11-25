@@ -56,6 +56,7 @@ A signed Android app is included in [`android/`](android/README.md) and installe
 - **Download:** [MyShoppingList-1.0.0.apk](https://github.com/kieronpeters/my-shopping-list/releases/download/v1.0.0/MyShoppingList-1.0.0.apk) (a local copy is also at `dist/MyShoppingList-1.0.0.apk`). Install it with `adb install -r`, or open it on the phone.
 - **Build and signing:** see [android/README.md](android/README.md). The signing key lives in `android/keystore/` and is excluded from git; back it up.
 - **Chrome-less launch:** the Android package is verified by Digital Asset Links published at the GitHub Pages host root, not just under this project folder.
+- **Verified:** installed on the phone, and the same signed APK was tested on an Android 15 emulator (full-screen launch, adding items, restart persistence, shared list with Chrome, offline launch).
 
 ## Using it
 
