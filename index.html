@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>My Shopping List</title>
+  <meta name="description" content="A simple, private shopping list that works offline.">
+  <meta name="theme-color" content="#f5f7f8" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1210" media="(prefers-color-scheme: dark)">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Shopping List">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 8h12l-1.1 11.2a1.6 1.6 0 0 1-1.6 1.3H8.7a1.6 1.6 0 0 1-1.6-1.3L6 8z"></path>
+            <path d="M9 8a3 3 0 0 1 6 0"></path>
+            <path d="M9.8 12.5h4.4"></path>
+          </svg>
+        </span>
+        <h1>My Shopping List</h1>
+      </div>
+      <p class="summary" id="summary" aria-live="polite">Nothing on your list yet</p>
+    </header>
+
+    <form class="add-form" id="add-form" autocomplete="off" novalidate>
+      <label class="visually-hidden" for="new-item">Add an item</label>
+      <input
+        class="add-input"
+        id="new-item"
+        name="text"
+        type="text"
+        placeholder="Add an item…"
+        maxlength="200"
+        enterkeyhint="done"
+        autocapitalize="sentences"
+        spellcheck="false"
+      >
+      <button class="add-btn" type="submit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true" focusable="false">
+          <path d="M12 5v14"></path>
+          <path d="M5 12h14"></path>
+        </svg>
+        <span>Add</span>
+      </button>
+    </form>
+
+    <main>
+      <section class="group" aria-labelledby="todo-heading">
+        <h2 id="todo-heading">To buy <span class="count" id="todo-count">0</span></h2>
+        <ul class="item-list" id="todo-list"></ul>
+        <p class="empty" id="empty-todo">Your list is empty. Add something you need to buy.</p>
+      </section>
+
+      <section class="group" id="done-group" aria-labelledby="done-heading" hidden>
+        <h2 id="done-heading">Purchased <span class="count" id="done-count">0</span></h2>
+        <ul class="item-list" id="done-list"></ul>
+      </section>
+
+      <p class="footnote">Saved automatically on this device · Works offline</p>
+    </main>
+  </div>
+
+  <div class="snackbar" id="snackbar" role="status" aria-live="polite" hidden>
+    <span id="snackbar-text"></span>
+    <button id="undo-btn" type="button" hidden>Undo</button>
+  </div>
+
+  <p class="visually-hidden" id="status" role="status" aria-live="polite"></p>
+
+  <noscript>
+    <p class="noscript">My Shopping List needs JavaScript to run. Please enable it in your browser.</p>
+  </noscript>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
