@@ -53,7 +53,7 @@ Nothing needs to be built — the files are the app. Upload the folder to any st
 
 A signed Android app is included in [`android/`](android/README.md) and installed on the phone as **My Shopping List** (package `io.github.kieronpeters.shoppinglist`). It is a Trusted Web Activity: the same web app, opened full-screen, sharing the local list with the web app in Chrome on that device.
 
-- **APK:** `dist/MyShoppingList-1.0.0.apk` — install with `adb install -r dist/MyShoppingList-1.0.0.apk`, or copy it to the phone and open it.
+- **Download:** [MyShoppingList-1.0.0.apk](https://github.com/kieronpeters/my-shopping-list/releases/download/v1.0.0/MyShoppingList-1.0.0.apk) (a local copy is also at `dist/MyShoppingList-1.0.0.apk`). Install it with `adb install -r`, or open it on the phone.
 - **Build and signing:** see [android/README.md](android/README.md). The signing key lives in `android/keystore/` and is excluded from git; back it up.
 - **Chrome-less launch:** the Android package is verified by Digital Asset Links published at the GitHub Pages host root, not just under this project folder.
 
