@@ -566,6 +566,19 @@ async function main() {
       assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
       assert.equal(snap.snackbarVisible, false);
       assert.equal(snap.stored.items.length, 3);
+
+      // Undo tapped in the same tick as delete must still dismiss the snackbar.
+      await evaluate(`(() => {
+        const row = document.querySelectorAll('#todo-list .item')[1];
+        row.querySelector('.btn-delete').click();
+        document.querySelector('#undo-btn').click();
+        return true;
+      })()`);
+      await delay(400);
+
+      snap = await snapshot();
+      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
+      assert.equal(snap.snackbarVisible, false);
     });
 
     await step('renders item text literally, with no HTML injection', async () => {

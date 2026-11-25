@@ -276,7 +276,6 @@ function onDelete(id) {
   persist();
   render();
   els.input.focus();
-  announce(`Deleted ${item.text}`);
 
   showSnackbar(`Deleted “${item.text}”`, 'Undo', () => {
     state = insertItem(state, item, index);
@@ -308,7 +307,10 @@ function showSnackbar(message, actionLabel, action) {
   }
 
   els.snackbar.hidden = false;
-  requestAnimationFrame(() => els.snackbar.classList.add('is-visible'));
+  // Flush styles so the entrance transition runs. Using a frame callback here
+  // would let a very fast Undo hide the bar and then have the class re-added.
+  void els.snackbar.offsetWidth;
+  els.snackbar.classList.add('is-visible');
   snackbarTimer = setTimeout(hideSnackbar, 6000);
 }
 
@@ -326,7 +328,7 @@ function hideSnackbar() {
 els.form.addEventListener('submit', onAdd);
 
 window.addEventListener('storage', (event) => {
-  if (event.key !== STORAGE_KEY) return;
+  if (event.key !== null && event.key !== STORAGE_KEY) return;
   state = loadState();
   editingId = null;
   render();
