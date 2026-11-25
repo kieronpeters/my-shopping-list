@@ -211,7 +211,21 @@ test('store module exports everything the app imports', async () => {
   for (const name of imported) {
     assert.ok(name in store, `store.js should export ${name}`);
   }
-  for (const name of ['addItem', 'updateItem', 'toggleItem', 'removeItem', 'insertItem', 'counts', 'loadState', 'saveState']) {
+  for (const name of [
+    'addItem',
+    'updateItem',
+    'toggleChecked',
+    'setStatus',
+    'removeItem',
+    'insertItem',
+    'removeMany',
+    'insertMany',
+    'reorderGroup',
+    'moveWithinGroup',
+    'counts',
+    'loadState',
+    'saveState',
+  ]) {
     assert.equal(typeof store[name], 'function', `store.js should export ${name}()`);
   }
 });

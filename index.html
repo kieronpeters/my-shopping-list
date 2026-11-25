@@ -56,16 +56,33 @@
     </form>
 
     <main>
-      <section class="group" aria-labelledby="todo-heading">
-        <h2 id="todo-heading">To buy <span class="count" id="todo-count">0</span></h2>
-        <ul class="item-list" id="todo-list"></ul>
-        <p class="empty" id="empty-todo">Your list is empty. Add something you need to buy.</p>
-      </section>
+      <div class="list-toolbar">
+        <div class="filters" id="filters" role="group" aria-label="Filter items by status">
+          <button class="filter-chip" type="button" data-filter="all" aria-pressed="true">
+            All <span class="filter-count" data-count="all">0</span>
+          </button>
+          <button class="filter-chip" type="button" data-filter="to-buy" aria-pressed="false">
+            To buy <span class="filter-count" data-count="to-buy">0</span>
+          </button>
+          <button class="filter-chip" type="button" data-filter="bought" aria-pressed="false">
+            Bought <span class="filter-count" data-count="bought">0</span>
+          </button>
+          <button class="filter-chip" type="button" data-filter="substituted" aria-pressed="false">
+            Substituted <span class="filter-count" data-count="substituted">0</span>
+          </button>
+          <button class="filter-chip" type="button" data-filter="skipped" aria-pressed="false">
+            Skipped <span class="filter-count" data-count="skipped">0</span>
+          </button>
+        </div>
 
-      <section class="group" id="done-group" aria-labelledby="done-heading" hidden>
-        <h2 id="done-heading">Purchased <span class="count" id="done-count">0</span></h2>
-        <ul class="item-list" id="done-list"></ul>
-      </section>
+        <div class="list-actions">
+          <button class="text-btn" type="button" id="clear-checked" disabled>Clear checked</button>
+          <button class="text-btn text-btn-danger" type="button" id="clear-list" disabled>Clear list</button>
+        </div>
+      </div>
+
+      <div class="groups" id="groups"></div>
+      <p class="empty" id="empty-state">Your list is empty. Add something you need to buy.</p>
 
       <p class="footnote">Saved automatically on this device · Works offline</p>
     </main>

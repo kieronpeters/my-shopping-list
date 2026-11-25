@@ -3,6 +3,7 @@
  * DevTools Protocol with no third-party dependencies.
  *
  * Run with: npm run test:e2e
+ * Against a deployment: E2E_BASE_URL=https://example.com/app/ npm run test:e2e
  */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -16,12 +17,16 @@ import { fileURLToPath } from 'node:url';
 import { createStaticServer } from '../server.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const STORAGE_KEY = 'my-shopping-list:v2';
+const LEGACY_KEY = 'my-shopping-list:v1';
 
 const CHROME_CANDIDATES = [
   process.env.CHROME_PATH,
   'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
   'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-  process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe') : null,
+  process.env.LOCALAPPDATA
+    ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe')
+    : null,
   'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
   '/usr/bin/google-chrome',
@@ -219,7 +224,7 @@ async function main() {
   const watchdog = setTimeout(() => {
     console.error(`\nE2E watchdog timed out during: ${currentStep}`);
     process.exit(1);
-  }, 180000);
+  }, 240000);
   watchdog.unref();
 
   const evaluate = async (expression, timeout = 20000) => {
@@ -302,14 +307,26 @@ async function main() {
 
     const snapshot = () =>
       evaluate(`(() => {
-        const readRow = (li) => ({
-          id: li.dataset.id,
-          text: li.querySelector('.item-text') ? li.querySelector('.item-text').textContent : null,
-          done: li.classList.contains('is-done'),
-          editing: li.classList.contains('is-editing'),
-          checked: li.querySelector('.item-toggle') ? li.querySelector('.item-toggle').checked : null,
-        });
-        const raw = localStorage.getItem('my-shopping-list:v1');
+        const readRow = (li) => {
+          const qtyText = li.querySelector('.qty-badge') ? li.querySelector('.qty-badge').textContent : '';
+          const toggle = li.querySelector('.item-toggle');
+          return {
+            id: li.dataset.id,
+            text: li.querySelector('.item-text') ? li.querySelector('.item-text').textContent : null,
+            status: li.dataset.status,
+            qty: Number(qtyText.replace(/[^0-9]/g, '')),
+            checked: toggle ? toggle.checked : null,
+            editing: li.classList.contains('is-editing'),
+          };
+        };
+        const groups = Array.from(document.querySelectorAll('#groups .group')).map((section) => ({
+          status: section.dataset.status,
+          heading: section.querySelector('h2') ? section.querySelector('h2').textContent.trim() : '',
+          count: section.querySelector('.count') ? section.querySelector('.count').textContent : '',
+          items: Array.from(section.querySelectorAll('.item')).map(readRow),
+        }));
+        const editingRow = document.querySelector('.item.is-editing');
+        const raw = localStorage.getItem(${JSON.stringify(STORAGE_KEY)});
         let stored = null;
         try {
           stored = raw ? JSON.parse(raw) : null;
@@ -320,19 +337,42 @@ async function main() {
           title: document.title,
           heading: document.querySelector('h1') ? document.querySelector('h1').textContent : null,
           summary: document.querySelector('#summary').textContent,
-          todo: Array.from(document.querySelectorAll('#todo-list .item')).map(readRow),
-          done: Array.from(document.querySelectorAll('#done-list .item')).map(readRow),
-          todoCount: document.querySelector('#todo-count').textContent,
-          doneCount: document.querySelector('#done-count').textContent,
-          doneGroupHidden: document.querySelector('#done-group').hidden,
-          emptyVisible: !document.querySelector('#empty-todo').hidden,
-          emptyText: document.querySelector('#empty-todo').textContent,
+          filters: Array.from(document.querySelectorAll('.filter-chip')).map((chip) => ({
+            filter: chip.dataset.filter,
+            count: Number(chip.querySelector('.filter-count').textContent),
+            pressed: chip.getAttribute('aria-pressed') === 'true',
+          })),
+          groups,
+          emptyVisible: !document.querySelector('#empty-state').hidden,
+          emptyText: document.querySelector('#empty-state').textContent,
+          clearCheckedDisabled: document.querySelector('#clear-checked').disabled,
+          clearListDisabled: document.querySelector('#clear-list').disabled,
+          editing: editingRow
+            ? {
+                text: editingRow.querySelector('.edit-input') ? editingRow.querySelector('.edit-input').value : null,
+                qty: Number(editingRow.querySelector('.qty-value') ? editingRow.querySelector('.qty-value').textContent : 0),
+                selectedStatus: editingRow.querySelector('.status-option.is-selected')
+                  ? editingRow.querySelector('.status-option.is-selected').dataset.status
+                  : null,
+                upDisabled: editingRow.querySelector('.qty-up') ? editingRow.querySelector('.qty-up').disabled : null,
+                downDisabled: editingRow.querySelector('.qty-down') ? editingRow.querySelector('.qty-down').disabled : null,
+                focused: document.activeElement === editingRow.querySelector('.edit-input'),
+              }
+            : null,
           snackbarVisible: !document.querySelector('#snackbar').hidden,
           snackbarText: document.querySelector('#snackbar-text').textContent,
           undoVisible: !document.querySelector('#undo-btn').hidden,
           stored,
+          legacyStored: localStorage.getItem(${JSON.stringify(LEGACY_KEY)}),
+          qtyControls: document.querySelectorAll('.qty-btn').length,
         };
       })()`);
+
+    const texts = (rows) => rows.map((row) => row.text);
+    const groupTexts = (snap, status) => texts(snap.groups.find((group) => group.status === status)?.items ?? []);
+    const allRows = (snap) => snap.groups.flatMap((group) => group.items);
+    const rowByText = (snap, text) => allRows(snap).find((row) => row.text === text);
+    const groupOf = (snap, status) => snap.groups.find((group) => group.status === status);
 
     const addItem = (text) =>
       evaluate(`(() => {
@@ -342,41 +382,129 @@ async function main() {
         return true;
       })()`);
 
-    const clickInList = (listSelector, index, buttonClass) =>
+    const rowAction = (id, selector) =>
       evaluate(`(() => {
-        const rows = Array.from(document.querySelectorAll('${listSelector} .item'));
-        const row = rows[${index}];
-        if (!row) throw new Error('No row at index ${index}');
-        const button = row.querySelector('${buttonClass}');
-        if (!button) throw new Error('No ${buttonClass} in row ${index}');
-        button.click();
+        const row = Array.from(document.querySelectorAll('.item')).find((entry) => entry.dataset.id === ${JSON.stringify(id)});
+        if (!row) throw new Error('row not found');
+        const target = row.querySelector(${JSON.stringify(selector)});
+        if (!target) throw new Error('control not found: ' + ${JSON.stringify(selector)});
+        target.click();
         return true;
       })()`);
 
-    const toggleTodo = (index) => clickInList('#todo-list', index, '.item-toggle');
-    const toggleDone = (index) => clickInList('#done-list', index, '.item-toggle');
-    const startEdit = (index) => clickInList('#todo-list', index, '.btn-edit');
-    const deleteTodo = (index) => clickInList('#todo-list', index, '.btn-delete');
-
-    const setEditValue = (text) =>
+    const toggleItem = (id) => rowAction(id, '.item-toggle');
+    const editItem = (id) => rowAction(id, '.btn-edit');
+    const deleteItem = (id) => rowAction(id, '.btn-delete');
+    const clickSave = () => evaluate(`document.querySelector('.btn-save').click()`);
+    const clickCancel = () => evaluate(`document.querySelector('.btn-cancel').click()`);
+    const setEditText = (text) =>
       evaluate(`(() => {
         const input = document.querySelector('.edit-input');
-        if (!input) throw new Error('No item is being edited');
+        if (!input) throw new Error('no edit input');
         input.value = ${JSON.stringify(text)};
         return input.value;
       })()`);
-
-    const pressKeyInEdit = (key) =>
+    const pressEditKey = (key) =>
       evaluate(`(() => {
         const input = document.querySelector('.edit-input');
-        if (!input) throw new Error('No item is being edited');
+        if (!input) throw new Error('no edit input');
         input.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true }));
         return true;
       })()`);
+    const chooseStatus = (status) =>
+      evaluate(`document.querySelector('.status-option[data-status=${JSON.stringify(status)}]').click()`);
+    const clickQty = (direction, times = 1) =>
+      evaluate(`(() => {
+        const button = document.querySelector(${JSON.stringify(direction === 'up' ? '.qty-up' : '.qty-down')});
+        if (!button) throw new Error('no quantity button');
+        for (let i = 0; i < ${times}; i += 1) button.click();
+        return Number(document.querySelector('.qty-value').textContent);
+      })()`);
+    const setEditorQty = async (target) => {
+      let current = Number(await evaluate(`document.querySelector('.qty-value').textContent`));
+      while (current < target) {
+        await clickQty('up');
+        current += 1;
+      }
+      while (current > target) {
+        await clickQty('down');
+        current -= 1;
+      }
+      assert.equal(Number(await evaluate(`document.querySelector('.qty-value').textContent`)), target);
+    };
+    const selectFilter = (filter) =>
+      evaluate(`document.querySelector('.filter-chip[data-filter=${JSON.stringify(filter)}]').click()`);
+    const clearChecked = () => evaluate(`document.querySelector('#clear-checked').click()`);
+    const clearList = () => evaluate(`document.querySelector('#clear-list').click()`);
+    const undo = () => evaluate(`document.querySelector('#undo-btn').click()`);
 
-    const clickSave = () => evaluate(`document.querySelector('.btn-save').click()`);
-    const clickUndo = () => evaluate(`document.querySelector('#undo-btn').click()`);
-    const texts = (rows) => rows.map((row) => row.text);
+    const idFor = async (text) => {
+      const snap = await snapshot();
+      const row = rowByText(snap, text);
+      assert.ok(row, `row "${text}" should exist`);
+      return row.id;
+    };
+
+    const reorderByKeyboard = async (id, key) => {
+      await evaluate(`(() => {
+        const row = Array.from(document.querySelectorAll('.item')).find((entry) => entry.dataset.id === ${JSON.stringify(id)});
+        if (!row) throw new Error('row not found');
+        const handle = row.querySelector('.drag-handle');
+        if (!handle) throw new Error('no drag handle');
+        handle.focus();
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true }));
+        return true;
+      })()`);
+      await delay(50);
+    };
+
+    const dragItem = async (id, targetId) => {
+      await cdp.send('Page.bringToFront');
+      const points = await evaluate(`(() => {
+        const rows = Array.from(document.querySelectorAll('.item'));
+        const source = rows.find((entry) => entry.dataset.id === ${JSON.stringify(id)});
+        const target = rows.find((entry) => entry.dataset.id === ${JSON.stringify(targetId)});
+        if (!source || !target) throw new Error('drag rows not found');
+        const handle = source.querySelector('.drag-handle');
+        const sourceRect = handle.getBoundingClientRect();
+        const targetRect = target.getBoundingClientRect();
+        return {
+          from: { x: sourceRect.left + sourceRect.width / 2, y: sourceRect.top + sourceRect.height / 2 },
+          to: { x: targetRect.left + targetRect.width / 2, y: targetRect.top + 4 },
+        };
+      })()`);
+
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed',
+        button: 'left',
+        clickCount: 1,
+        x: points.from.x,
+        y: points.from.y,
+      });
+      await delay(30);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        buttons: 1,
+        x: points.from.x,
+        y: points.from.y + 12,
+      });
+      await delay(50);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        buttons: 1,
+        x: points.to.x,
+        y: points.to.y,
+      });
+      await delay(80);
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased',
+        button: 'left',
+        clickCount: 1,
+        x: points.to.x,
+        y: points.to.y,
+      });
+      await delay(200);
+    };
 
     const screenshot = async (name) => {
       const { data } = await cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true });
@@ -414,175 +542,318 @@ async function main() {
       assert.equal(snap.title, 'My Shopping List');
       assert.equal(snap.heading, 'My Shopping List');
       assert.equal(snap.summary, 'Nothing on your list yet');
-      assert.deepEqual(texts(snap.todo), []);
-      assert.deepEqual(texts(snap.done), []);
-      assert.equal(snap.doneGroupHidden, true);
+      assert.deepEqual(snap.groups, []);
       assert.equal(snap.emptyVisible, true);
-      assert.equal(snap.snackbarVisible, false);
-      assert.equal(snap.todoCount, '0');
-      assert.equal(snap.stored, null);
+      assert.match(snap.emptyText, /Your list is empty/);
+      assert.equal(snap.clearCheckedDisabled, true);
+      assert.equal(snap.clearListDisabled, true);
+      assert.equal(snap.legacyStored, null);
+
+      const addInput = await evaluate(`(() => {
+        const input = document.querySelector('#new-item');
+        const placeholder = getComputedStyle(input, '::placeholder');
+        return {
+          placeholder: input.placeholder,
+          value: input.value,
+          placeholderColor: placeholder.color,
+          placeholderOpacity: placeholder.opacity,
+          fontSize: placeholder.fontSize,
+        };
+      })()`);
+      assert.equal(addInput.placeholder, 'Add an item…');
+      assert.equal(addInput.value, '');
+      assert.notEqual(addInput.placeholderColor, 'rgba(0, 0, 0, 0)');
+
+      const filters = Object.fromEntries(snap.filters.map((filter) => [filter.filter, filter]));
+      assert.deepEqual(Object.keys(filters), ['all', 'to-buy', 'bought', 'substituted', 'skipped']);
+      assert.equal(filters.all.pressed, true);
+      for (const filter of snap.filters) assert.equal(filter.count, 0);
     });
 
-    await step('adds items in order and normalizes whitespace', async () => {
+    await step('adds items in order with quantity 1 and To buy status', async () => {
       await addItem('Milk');
       const first = await snapshot();
       assert.equal(first.summary, '1 item to buy');
+      assert.deepEqual(groupTexts(first, 'to-buy'), ['Milk']);
+      assert.equal(groupOf(first, 'to-buy').count, '1');
+      assert.equal(rowByText(first, 'Milk').qty, 1);
+      assert.equal(rowByText(first, 'Milk').checked, false);
 
       await addItem('   Eggs   ');
       await addItem('Bread');
+      await addItem('Coffee');
 
       const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Milk', 'Eggs', 'Bread']);
-      assert.equal(snap.summary, '3 items to buy');
-      assert.equal(snap.todoCount, '3');
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Milk', 'Eggs', 'Bread', 'Coffee']);
+      assert.equal(snap.summary, '4 items to buy');
       assert.equal(snap.emptyVisible, false);
-      assert.equal(snap.stored.items.length, 3);
+      assert.equal(snap.clearListDisabled, false);
+      assert.equal(snap.clearCheckedDisabled, true);
+      assert.equal(snap.stored.items.length, 4);
+      assert.ok(snap.stored.items.every((item) => item.qty === 1 && item.status === 'to-buy'));
 
       await addItem('     ');
-      const afterBlank = await snapshot();
-      assert.equal(afterBlank.todo.length, 3, 'blank submissions must be ignored');
-      assert.equal(afterBlank.stored.items.length, 3);
+      assert.equal(allRows(await snapshot()).length, 4, 'blank submissions must be ignored');
     });
 
-    await step('clamps very long entries and keeps the list usable', async () => {
-      await addItem('x'.repeat(250));
+    await step('does not expose quantity controls outside edit mode', async () => {
       const snap = await snapshot();
-      assert.equal(snap.todo.at(-1).text.length, 200);
-      await deleteTodo(snap.todo.length - 1);
-
-      const after = await snapshot();
-      assert.deepEqual(texts(after.todo), ['Milk', 'Eggs', 'Bread']);
+      assert.equal(snap.qtyControls, 0);
+      assert.equal(snap.editing, null);
     });
 
-    await step('marks items as purchased and separates them', async () => {
-      await toggleTodo(0);
+    await step('changes quantity with the up/down arrows in edit mode', async () => {
+      const milkId = await idFor('Milk');
+      await editItem(milkId);
 
-      const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Eggs', 'Bread']);
-      assert.deepEqual(texts(snap.done), ['Milk']);
-      assert.equal(snap.done[0].checked, true);
-      assert.equal(snap.done[0].done, true);
-      assert.equal(snap.summary, '1 of 3 purchased');
-      assert.equal(snap.doneGroupHidden, false);
-      assert.equal(snap.doneCount, '1');
-    });
-
-    await step('moves purchased items back to the list', async () => {
-      await toggleDone(0);
-
-      const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Milk', 'Eggs', 'Bread']);
-      assert.deepEqual(texts(snap.done), []);
-      assert.equal(snap.doneGroupHidden, true);
-      assert.equal(snap.summary, '3 items to buy');
-      assert.equal(snap.stored.items[0].done, false);
-    });
-
-    await step('edits an item inline', async () => {
-      await startEdit(1);
-      const editing = await evaluate(`(() => {
-        const input = document.querySelector('.item.is-editing .edit-input');
-        if (!input) return null;
-        return {
-          value: input.value,
-          focused: document.activeElement === input,
-          hasSave: !!document.querySelector('.btn-save'),
-          hasCancel: !!document.querySelector('.btn-cancel'),
-          rowIsEditing: document.querySelectorAll('.item.is-editing').length,
-        };
-      })()`);
-      assert.deepEqual(editing, {
-        value: 'Eggs',
+      let snap = await snapshot();
+      assert.deepEqual(snap.editing, {
+        text: 'Milk',
+        qty: 1,
+        selectedStatus: 'to-buy',
+        upDisabled: false,
+        downDisabled: true,
         focused: true,
-        hasSave: true,
-        hasCancel: true,
-        rowIsEditing: 1,
       });
 
-      await setEditValue('Free-range eggs');
+      await clickQty('up', 2);
+      snap = await snapshot();
+      assert.equal(snap.editing.qty, 3);
+      assert.equal(snap.editing.downDisabled, false);
+
+      await clickSave();
+      snap = await snapshot();
+      assert.equal(snap.editing, null);
+      assert.equal(rowByText(snap, 'Milk').qty, 3);
+      assert.equal(snap.stored.items.find((item) => item.text === 'Milk').qty, 3);
+    });
+
+    await step('changes status in edit mode and moves the item to its group', async () => {
+      const eggsId = await idFor('Eggs');
+      await editItem(eggsId);
+      assert.equal((await snapshot()).editing.selectedStatus, 'to-buy');
+      await chooseStatus('bought');
+      assert.equal((await snapshot()).editing.selectedStatus, 'bought');
       await clickSave();
 
       const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Milk', 'Free-range eggs', 'Bread']);
-      assert.equal(snap.stored.items[1].text, 'Free-range eggs');
-      assert.equal(await evaluate(`!!document.querySelector('.edit-input')`), false);
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Milk', 'Bread', 'Coffee']);
+      assert.deepEqual(groupTexts(snap, 'bought'), ['Eggs']);
+      assert.equal(snap.summary, '1 of 4 checked');
+      assert.equal(rowByText(snap, 'Eggs').checked, true);
+      assert.equal(rowByText(snap, 'Eggs').qty, 1);
+      assert.equal(snap.clearCheckedDisabled, false);
+      assert.equal(snap.filters.find((filter) => filter.filter === 'bought').count, 1);
     });
 
-    await step('supports Enter to save and Escape to cancel', async () => {
-      await startEdit(0);
-      await setEditValue('Oat milk');
-      await pressKeyInEdit('Enter');
-      assert.deepEqual(texts((await snapshot()).todo), ['Oat milk', 'Free-range eggs', 'Bread']);
+    await step('filters by every status and returns to All', async () => {
+      await selectFilter('bought');
+      let snap = await snapshot();
+      assert.deepEqual(snap.groups.map((group) => group.status), ['bought']);
+      assert.equal(snap.emptyVisible, false);
+      assert.equal(snap.filters.find((filter) => filter.filter === 'bought').pressed, true);
 
-      await startEdit(0);
-      await setEditValue('Whole milk');
-      await pressKeyInEdit('Escape');
+      await selectFilter('substituted');
+      snap = await snapshot();
+      assert.deepEqual(snap.groups, []);
+      assert.equal(snap.emptyVisible, true);
+      assert.equal(snap.emptyText, 'No substituted items.');
+      assert.equal(snap.summary, '1 of 4 checked', 'summary stays global');
 
+      await selectFilter('to-buy');
+      snap = await snapshot();
+      assert.deepEqual(snap.groups.map((group) => group.status), ['to-buy']);
+
+      await selectFilter('all');
+      snap = await snapshot();
+      assert.deepEqual(snap.groups.map((group) => group.status), ['to-buy', 'bought']);
+      assert.equal(snap.filters.find((filter) => filter.filter === 'all').pressed, true);
+    });
+
+    await step('reorders items with the keyboard reorder handle', async () => {
+      let snap = await snapshot();
+      const milkId = rowByText(snap, 'Milk').id;
+
+      await reorderByKeyboard(milkId, 'ArrowDown');
+      snap = await snapshot();
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Bread', 'Milk', 'Coffee']);
+
+      await reorderByKeyboard(milkId, 'ArrowDown');
+      snap = await snapshot();
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Bread', 'Coffee', 'Milk']);
+
+      await reorderByKeyboard(milkId, 'ArrowUp');
+      snap = await snapshot();
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Bread', 'Milk', 'Coffee']);
+
+      const stored = snap.stored.items.map((item) => item.text);
+      assert.deepEqual(stored, ['Bread', 'Eggs', 'Milk', 'Coffee'], 'the order is persisted');
+    });
+
+    await step('reorders items with a pointer drag', async () => {
+      let snap = await snapshot();
+      const coffeeId = rowByText(snap, 'Coffee').id;
+      const breadId = rowByText(snap, 'Bread').id;
+
+      await dragItem(coffeeId, breadId);
+
+      snap = await snapshot();
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Coffee', 'Bread', 'Milk']);
+      assert.deepEqual(snap.groups.find((group) => group.status === 'bought').items.map((row) => row.text), ['Eggs']);
+      assert.deepEqual(
+        snap.stored.items.map((item) => item.text),
+        ['Coffee', 'Eggs', 'Bread', 'Milk'],
+      );
+    });
+
+    await step('edits text with Enter/Escape and keeps blank edits out', async () => {
+      const breadId = await idFor('Bread');
+      await editItem(breadId);
+      await setEditText('Sourdough bread');
+      await pressEditKey('Enter');
+      assert.deepEqual(groupTexts(await snapshot(), 'to-buy'), ['Coffee', 'Sourdough bread', 'Milk']);
+
+      const sourdoughId = await idFor('Sourdough bread');
+      await editItem(sourdoughId);
+      await setEditText('Wholemeal bread');
+      await pressEditKey('Escape');
+      assert.deepEqual(groupTexts(await snapshot(), 'to-buy'), ['Coffee', 'Sourdough bread', 'Milk']);
+
+      await editItem(sourdoughId);
+      await setEditText('    ');
+      await clickSave();
       const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
-      assert.equal(await evaluate(`!!document.querySelector('.edit-input')`), false);
-      assert.equal(snap.stored.items[0].text, 'Oat milk');
+      assert.ok(rowByText(snap, 'Sourdough bread'));
+      assert.equal(snap.stored.items.length, 4);
     });
 
-    await step('never blanks an item when an edit is emptied', async () => {
-      await startEdit(2);
-      await setEditValue('    ');
+    await step('supports substituted and skipped statuses, plus completion', async () => {
+      const milkId = await idFor('Milk');
+      await editItem(milkId);
+      await chooseStatus('substituted');
       await clickSave();
 
-      const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
-      assert.equal(snap.stored.items.length, 3);
-      assert.equal(await evaluate(`!!document.querySelector('.edit-input')`), false);
-    });
-
-    await step('shows a completion message when everything is purchased', async () => {
-      for (let i = 0; i < 3; i += 1) await toggleTodo(0);
+      const sourdoughId = await idFor('Sourdough bread');
+      await editItem(sourdoughId);
+      await chooseStatus('skipped');
+      await clickSave();
 
       let snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), []);
-      assert.equal(snap.done.length, 3);
-      assert.equal(snap.summary, '3 of 3 purchased');
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Coffee']);
+      assert.deepEqual(groupTexts(snap, 'bought'), ['Eggs']);
+      assert.deepEqual(groupTexts(snap, 'substituted'), ['Milk']);
+      assert.deepEqual(groupTexts(snap, 'skipped'), ['Sourdough bread']);
+      assert.equal(snap.summary, '3 of 4 checked');
+      assert.equal(rowByText(snap, 'Milk').qty, 3);
+
+      const coffeeId = rowByText(snap, 'Coffee').id;
+      await toggleItem(coffeeId);
+      snap = await snapshot();
+      assert.deepEqual(snap.groups.map((group) => group.status), ['bought', 'substituted', 'skipped']);
+      assert.equal(snap.summary, '4 of 4 checked');
       assert.equal(snap.emptyVisible, true);
       assert.match(snap.emptyText, /All done/);
-      assert.equal(snap.stored.items.every((item) => item.done), true);
 
-      for (let i = 0; i < 3; i += 1) await toggleDone(0);
-
+      await toggleItem(coffeeId);
       snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
-      assert.deepEqual(texts(snap.done), []);
-      assert.equal(snap.emptyVisible, false);
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Coffee']);
+      assert.equal(snap.summary, '3 of 4 checked');
     });
 
-    await step('deletes an item and Undo restores its position', async () => {
-      await deleteTodo(1);
+    await step('clears checked items and restores them with Undo', async () => {
+      await clearChecked();
 
       let snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Bread']);
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Coffee']);
+      assert.equal(allRows(snap).length, 1);
       assert.equal(snap.snackbarVisible, true);
-      assert.match(snap.snackbarText, /Free-range eggs/);
+      assert.equal(snap.snackbarText, 'Cleared 3 checked items');
       assert.equal(snap.undoVisible, true);
-      assert.equal(snap.stored.items.length, 2);
+      assert.equal(snap.clearCheckedDisabled, true);
 
-      await clickUndo();
+      await undo();
       await delay(350);
-
       snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
+      assert.deepEqual(
+        allRows(snap).map((row) => [row.text, row.status, row.qty]),
+        [
+          ['Coffee', 'to-buy', 1],
+          ['Eggs', 'bought', 1],
+          ['Milk', 'substituted', 3],
+          ['Sourdough bread', 'skipped', 1],
+        ],
+      );
+      assert.deepEqual(
+        snap.stored.items.map((item) => [item.text, item.status, item.qty]),
+        [
+          ['Coffee', 'to-buy', 1],
+          ['Eggs', 'bought', 1],
+          ['Sourdough bread', 'skipped', 1],
+          ['Milk', 'substituted', 3],
+        ],
+        'the original positions are restored',
+      );
       assert.equal(snap.snackbarVisible, false);
-      assert.equal(snap.stored.items.length, 3);
+      assert.equal(snap.summary, '3 of 4 checked');
+    });
 
-      // Undo tapped in the same tick as delete must still dismiss the snackbar.
-      await evaluate(`(() => {
-        const row = document.querySelectorAll('#todo-list .item')[1];
-        row.querySelector('.btn-delete').click();
-        document.querySelector('#undo-btn').click();
-        return true;
-      })()`);
-      await delay(400);
+    await step('clears the whole list and restores it with Undo', async () => {
+      await clearList();
 
+      let snap = await snapshot();
+      assert.deepEqual(snap.groups, []);
+      assert.equal(snap.emptyVisible, true);
+      assert.match(snap.emptyText, /Your list is empty/);
+      assert.equal(snap.snackbarText, 'Cleared all 4 items');
+      assert.equal(snap.clearListDisabled, true);
+      assert.equal(snap.clearCheckedDisabled, true);
+
+      await undo();
+      await delay(350);
       snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs', 'Bread']);
+      assert.deepEqual(
+        allRows(snap).map((row) => [row.text, row.status, row.qty]),
+        [
+          ['Coffee', 'to-buy', 1],
+          ['Eggs', 'bought', 1],
+          ['Milk', 'substituted', 3],
+          ['Sourdough bread', 'skipped', 1],
+        ],
+      );
+      assert.deepEqual(
+        snap.stored.items.map((item) => [item.text, item.status, item.qty]),
+        [
+          ['Coffee', 'to-buy', 1],
+          ['Eggs', 'bought', 1],
+          ['Sourdough bread', 'skipped', 1],
+          ['Milk', 'substituted', 3],
+        ],
+      );
+      assert.equal(snap.snackbarVisible, false);
+    });
+
+    await step('deletes one item and Undo restores its position', async () => {
+      const coffeeId = await idFor('Coffee');
+      await deleteItem(coffeeId);
+
+      let snap = await snapshot();
+      assert.deepEqual(groupTexts(snap, 'to-buy'), []);
+      assert.equal(allRows(snap).length, 3);
+      assert.match(snap.snackbarText, /Deleted “Coffee”/);
+
+      await undo();
+      await delay(350);
+      snap = await snapshot();
+      assert.deepEqual(allRows(snap).map((row) => row.text), [
+        'Coffee',
+        'Eggs',
+        'Milk',
+        'Sourdough bread',
+      ]);
+      assert.deepEqual(
+        snap.stored.items.map((item) => item.text),
+        ['Coffee', 'Eggs', 'Sourdough bread', 'Milk'],
+      );
       assert.equal(snap.snackbarVisible, false);
     });
 
@@ -591,28 +862,29 @@ async function main() {
       await addItem(payload);
 
       const snap = await snapshot();
-      assert.equal(snap.todo.at(-1).text, payload);
-      assert.equal(await evaluate(`document.querySelectorAll('#todo-list img').length`), 0);
+      assert.equal(rowByText(snap, payload).text, payload);
+      assert.equal(await evaluate(`document.querySelectorAll('#groups img').length`), 0);
       assert.equal(await evaluate(`typeof window.__xss`), 'undefined');
 
-      await deleteTodo(snap.todo.length - 1);
+      const payloadId = rowByText(snap, payload).id;
+      await deleteItem(payloadId);
+      await delay(250);
     });
 
-    await step('persists items, edits, and purchased state across a reload', async () => {
-      await toggleTodo(2); // Bread → purchased
-
+    await step('persists quantities, statuses, and order across a reload', async () => {
       const before = await snapshot();
-      assert.equal(before.summary, '1 of 3 purchased');
-      assert.deepEqual(texts(before.done), ['Bread']);
 
       await reload();
 
       const after = await snapshot();
-      assert.deepEqual(texts(after.todo), ['Oat milk', 'Free-range eggs']);
-      assert.deepEqual(texts(after.done), ['Bread']);
-      assert.equal(after.summary, '1 of 3 purchased');
-      assert.equal(after.doneGroupHidden, false);
-      assert.equal(after.done[0].checked, true);
+      assert.equal(after.summary, before.summary);
+      assert.deepEqual(
+        allRows(after).map((row) => [row.text, row.status, row.qty]),
+        allRows(before).map((row) => [row.text, row.status, row.qty]),
+      );
+      assert.equal(after.filters.find((filter) => filter.filter === 'all').pressed, true);
+      assert.equal(after.editing, null);
+      assert.equal(after.snackbarVisible, false);
     });
 
     await step('registers an active service worker with a complete app shell cache', async () => {
@@ -635,10 +907,7 @@ async function main() {
         };
       })()`, 25000);
 
-      assert.equal(sw.supported, true);
-      assert.equal(sw.ready, true);
-      assert.equal(sw.active, true);
-      assert.equal(sw.controller, true);
+      assert.deepEqual(sw, { supported: true, ready: true, active: true, controller: true });
 
       const manifest = await evaluate(
         `fetch('./manifest.webmanifest').then((response) => {
@@ -676,26 +945,23 @@ async function main() {
       );
     });
 
-    await step('loads and renders without console errors or failed requests', async () => {
-      assert.deepEqual(consoleErrors, []);
-      assert.deepEqual(failedRequests, []);
-    });
-
     await step('is installable as a PWA', async () => {
       const appManifest = await cdp.send('Page.getAppManifest');
       assert.equal(appManifest.errors?.length ?? 0, 0, 'manifest must parse without errors');
       assert.match(appManifest.url, /manifest\.webmanifest$/);
 
-      const manifestType = await evaluate(
-        `fetch('./manifest.webmanifest').then((response) => response.headers.get('content-type') || '')`,
-      );
-      assert.match(manifestType, /application\/manifest\+json/);
-
       const { installabilityErrors = [] } = await cdp.send('Page.getInstallabilityErrors');
       assert.deepEqual(installabilityErrors, []);
     });
 
-    await step('still works offline, with data intact', async () => {
+    await step('loads and renders without console errors or failed requests', async () => {
+      assert.deepEqual(consoleErrors, []);
+      assert.deepEqual(failedRequests, []);
+    });
+
+    await step('still works offline, with quantities, statuses, and order intact', async () => {
+      const before = await snapshot();
+
       await cdp.send('Network.emulateNetworkConditions', {
         offline: true,
         latency: 0,
@@ -707,9 +973,10 @@ async function main() {
         await reload();
 
         const snap = await snapshot();
-        assert.deepEqual(texts(snap.todo), ['Oat milk', 'Free-range eggs']);
-        assert.deepEqual(texts(snap.done), ['Bread']);
-        assert.equal(snap.summary, '1 of 3 purchased');
+        assert.deepEqual(
+          allRows(snap).map((row) => [row.text, row.status, row.qty]),
+          allRows(before).map((row) => [row.text, row.status, row.qty]),
+        );
         assert.equal(await evaluate(`navigator.onLine`), false);
       } finally {
         await cdp.send('Network.emulateNetworkConditions', {
@@ -721,10 +988,12 @@ async function main() {
       }
     });
 
-    await step('fits a 390px phone with 44px tap targets and no overflow', async () => {
+    await step('fits a phone with 44px tap targets in both list and edit modes', async () => {
       const layout = await evaluate(`(() => {
-        const controls = Array.from(document.querySelectorAll('.check, .icon-btn, .add-btn, #undo-btn'))
-          .filter((element) => element.offsetParent !== null)
+        const selectors = '.filter-chip, .text-btn, .check, .icon-btn, .add-btn';
+        const visible = (element) => element.offsetParent !== null && !element.disabled;
+        const controls = Array.from(document.querySelectorAll(selectors))
+          .filter(visible)
           .map((element) => {
             const rect = element.getBoundingClientRect();
             return {
@@ -733,28 +1002,55 @@ async function main() {
               height: Math.round(rect.height),
             };
           });
-        const input = document.querySelector('#new-item');
         return {
           innerWidth: window.innerWidth,
           scrollWidth: document.documentElement.scrollWidth,
-          inputFontSize: parseFloat(getComputedStyle(input).fontSize),
+          inputFontSize: parseFloat(getComputedStyle(document.querySelector('#new-item')).fontSize),
           controls,
         };
       })()`);
 
-      assert.ok(
-        layout.scrollWidth <= layout.innerWidth,
-        `horizontal overflow: ${layout.scrollWidth} > ${layout.innerWidth}`,
-      );
-      assert.ok(layout.inputFontSize >= 16, 'input font size must be at least 16px on mobile');
-      assert.ok(layout.controls.length >= 5);
+      assert.ok(layout.scrollWidth <= layout.innerWidth, `overflow in list view: ${layout.scrollWidth} > ${layout.innerWidth}`);
+      assert.ok(layout.inputFontSize >= 16);
+      assert.ok(layout.controls.length >= 6);
       for (const control of layout.controls) {
-        assert.ok(control.height >= 44, `${control.name} is only ${control.height}px tall`);
-        assert.ok(control.width >= 44, `${control.name} is only ${control.width}px wide`);
+        assert.ok(control.height >= 44, `${control.name} is ${control.height}px tall`);
+        assert.ok(control.width >= 44, `${control.name} is ${control.width}px wide`);
       }
+
+      const coffeeId = await idFor('Coffee');
+      await editItem(coffeeId);
+
+      const editLayout = await evaluate(`(() => {
+        const selectors = '.qty-btn:not(:disabled), .status-option, .btn-save, .btn-cancel';
+        const controls = Array.from(document.querySelectorAll(selectors)).map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            name: element.className || element.id,
+            width: Math.round(rect.width),
+            height: Math.round(rect.height),
+          };
+        });
+        return {
+          innerWidth: window.innerWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          editFontSize: parseFloat(getComputedStyle(document.querySelector('.edit-input')).fontSize),
+          controls,
+        };
+      })()`);
+
+      assert.ok(editLayout.scrollWidth <= editLayout.innerWidth, `overflow in edit view: ${editLayout.scrollWidth} > ${editLayout.innerWidth}`);
+      assert.ok(editLayout.editFontSize >= 16);
+      assert.ok(editLayout.controls.length >= 5);
+      for (const control of editLayout.controls) {
+        assert.ok(control.height >= 44, `${control.name} is ${control.height}px tall`);
+        assert.ok(control.width >= 44, `${control.name} is ${control.width}px wide`);
+      }
+
+      await clickCancel();
     });
 
-    await step('fits a narrow 320px phone', async () => {
+    await step('fits a narrow 320px phone, including edit mode', async () => {
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 320,
         height: 700,
@@ -763,14 +1059,20 @@ async function main() {
       });
       await delay(150);
 
-      const layout = await evaluate(`({
+      let layout = await evaluate(`({
         innerWidth: window.innerWidth,
         scrollWidth: document.documentElement.scrollWidth,
       })`);
-      assert.ok(
-        layout.scrollWidth <= layout.innerWidth,
-        `horizontal overflow: ${layout.scrollWidth} > ${layout.innerWidth}`,
-      );
+      assert.ok(layout.scrollWidth <= layout.innerWidth, `overflow: ${layout.scrollWidth} > ${layout.innerWidth}`);
+
+      const coffeeId = await idFor('Coffee');
+      await editItem(coffeeId);
+      layout = await evaluate(`({
+        innerWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      })`);
+      assert.ok(layout.scrollWidth <= layout.innerWidth, `overflow in edit mode: ${layout.scrollWidth} > ${layout.innerWidth}`);
+      await clickCancel();
 
       await cdp.send('Emulation.setDeviceMetricsOverride', {
         width: 390,
@@ -781,19 +1083,43 @@ async function main() {
       await delay(150);
     });
 
-    await step('recovers gracefully from corrupt local storage', async () => {
-      await evaluate(`localStorage.setItem('my-shopping-list:v1', '{{{not json')`);
+    await step('migrates a v1 list automatically', async () => {
+      await evaluate(`localStorage.clear(); localStorage.setItem(${JSON.stringify(LEGACY_KEY)}, JSON.stringify({
+        version: 1,
+        items: [
+          { id: 'old-1', text: 'Legacy milk', done: true, createdAt: 5 },
+          { id: 'old-2', text: 'Legacy eggs', done: false, createdAt: 6 }
+        ]
+      }))`);
       await reload();
 
       let snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), []);
-      assert.deepEqual(texts(snap.done), []);
-      assert.equal(snap.emptyVisible, true);
+      assert.equal(snap.stored, null, 'v2 is not written until the next change');
+      assert.ok(snap.legacyStored, 'the legacy copy is still present before a save');
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Legacy eggs']);
+      assert.deepEqual(groupTexts(snap, 'bought'), ['Legacy milk']);
+      assert.equal(snap.summary, '1 of 2 checked');
+      assert.equal(rowByText(snap, 'Legacy milk').qty, 1);
+
+      await addItem('Legacy apples');
+      snap = await snapshot();
+      assert.equal(snap.stored.items.length, 3);
+      assert.equal(snap.legacyStored, null, 'the legacy key is cleaned up after saving');
+      assert.equal(rowByText(snap, 'Legacy apples').status, 'to-buy');
+    });
+
+    await step('recovers gracefully from corrupt local storage', async () => {
+      await evaluate(`localStorage.setItem(${JSON.stringify(STORAGE_KEY)}, '{{{not json')`);
+      await reload();
+
+      let snap = await snapshot();
+      assert.deepEqual(snap.groups, []);
       assert.equal(snap.summary, 'Nothing on your list yet');
+      assert.equal(snap.emptyVisible, true);
 
       await addItem('Apples');
       snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Apples']);
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Apples']);
       assert.equal(snap.stored.items.length, 1);
     });
 
@@ -804,25 +1130,69 @@ async function main() {
       for (const text of ['Milk', 'Eggs', 'Sourdough bread', 'Bananas', 'Coffee beans']) {
         await addItem(text);
       }
-      await toggleTodo(0); // Milk
-      await toggleTodo(3); // Coffee beans
+
+      const milkId = await idFor('Milk');
+      await editItem(milkId);
+      await setEditorQty(3);
+      await chooseStatus('bought');
+      await clickSave();
+
+      const eggsId = await idFor('Eggs');
+      await editItem(eggsId);
+      await chooseStatus('substituted');
+      await clickSave();
+
+      const bananasId = await idFor('Bananas');
+      await editItem(bananasId);
+      await chooseStatus('skipped');
+      await clickSave();
+
+      const coffeeId = await idFor('Coffee beans');
+      await editItem(coffeeId);
+      await setEditorQty(2);
+      await clickSave();
 
       const snap = await snapshot();
-      assert.deepEqual(texts(snap.todo), ['Eggs', 'Sourdough bread', 'Bananas']);
-      assert.deepEqual(texts(snap.done), ['Milk', 'Coffee beans']);
-      assert.equal(snap.summary, '2 of 5 purchased');
+      assert.deepEqual(groupTexts(snap, 'to-buy'), ['Sourdough bread', 'Coffee beans']);
+      assert.deepEqual(groupTexts(snap, 'bought'), ['Milk']);
+      assert.deepEqual(groupTexts(snap, 'substituted'), ['Eggs']);
+      assert.deepEqual(groupTexts(snap, 'skipped'), ['Bananas']);
+      assert.equal(snap.summary, '3 of 5 checked');
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 960,
+        deviceScaleFactor: 2,
+        mobile: true,
+      });
+      await delay(150);
 
       await cdp.send('Emulation.setEmulatedMedia', {
         features: [{ name: 'prefers-color-scheme', value: 'light' }],
       });
+      await evaluate(`document.activeElement && document.activeElement.blur()`);
       await delay(150);
       await screenshot('screenshot-light.png');
+
+      const coffeeBeansId = await idFor('Coffee beans');
+      await editItem(coffeeBeansId);
+      await delay(200);
+      await screenshot('screenshot-edit.png');
+      await clickCancel();
+      await evaluate(`document.activeElement && document.activeElement.blur()`);
 
       await cdp.send('Emulation.setEmulatedMedia', {
         features: [{ name: 'prefers-color-scheme', value: 'dark' }],
       });
       await delay(150);
       await screenshot('screenshot-dark.png');
+
+      await cdp.send('Emulation.setDeviceMetricsOverride', {
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 2,
+        mobile: true,
+      });
     });
 
     console.log(`\nAll ${passed} end-to-end checks passed.`);

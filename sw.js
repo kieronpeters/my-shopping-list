@@ -1,6 +1,6 @@
 /* My Shopping List service worker — offline-first app shell. */
 
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE_NAME = `my-shopping-list-${VERSION}`;
 
 const APP_SHELL = [
