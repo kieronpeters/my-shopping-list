@@ -676,6 +676,20 @@ async function main() {
       assert.deepEqual(failedRequests, []);
     });
 
+    await step('is installable as a PWA', async () => {
+      const appManifest = await cdp.send('Page.getAppManifest');
+      assert.equal(appManifest.errors?.length ?? 0, 0, 'manifest must parse without errors');
+      assert.match(appManifest.url, /manifest\.webmanifest$/);
+
+      const manifestType = await evaluate(
+        `fetch('./manifest.webmanifest').then((response) => response.headers.get('content-type') || '')`,
+      );
+      assert.match(manifestType, /application\/manifest\+json/);
+
+      const { installabilityErrors = [] } = await cdp.send('Page.getInstallabilityErrors');
+      assert.deepEqual(installabilityErrors, []);
+    });
+
     await step('still works offline, with data intact', async () => {
       await cdp.send('Network.emulateNetworkConditions', {
         offline: true,
